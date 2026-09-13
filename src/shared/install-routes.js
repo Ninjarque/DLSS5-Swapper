@@ -16,6 +16,10 @@
     return null;
   }
   function routesFor(target, api = target && target.api) {
+    // An RTX Remix game draws through its own 64-bit Vulkan runtime, whatever
+    // the executable beside it imports. ReShade in front of the bridge breaks
+    // the game, so the runtime route is the only one, for every API choice.
+    if (target && target.remix) return ['remix'];
     if (!target || ![32, 64].includes(target.bitness)) return [];
     if (api === 'd3d10' || (api === 'dxgi' && target.apiLabel === 'DirectX 10')) return [];
     // DirectDraw and DX8 both reach modern hardware only through dgVoodoo's
@@ -43,6 +47,7 @@
     return routes;
   }
   function recommendedRoute(scan, target = scan.chosen) {
+    if (scan.remix) return 'remix';
     const routes = routesFor(target);
     const nativeDlss = nativeDlssPresent(scan);
     const wanted = scan.install && scan.install.route === 'feeder'

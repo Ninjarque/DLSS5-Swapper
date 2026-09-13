@@ -10,6 +10,7 @@ const emulators = require('./emulators');
 const crypto = require('crypto');
 const feederRelease = require('./feeder-release');
 const { safePath } = require('./file-journal');
+const remixRuntime = require('./remix');
 
 const SKIP_DIRS = new Set([
   '_dlss5_backup', 'reshade-shaders', 'host64', 'node_modules', '.git',
@@ -29,7 +30,7 @@ const SKIP_DIRS = new Set([
 const MAX_SCAN_DEPTH = 12;
 
 // Installers, launchers and anti-cheat helpers are never the game itself.
-const NOT_A_GAME = /^(unins|setup|install|vcredist|vc_redist|dxsetup|dxwebsetup|oalinst|uninstall|crashreport|crashhandler|easyanticheat|eac|battleye|be_service|launcher|activation|patch|update|dotnetfx|touchup|rapidcrc|autorun|autoplay|quicksfv|readme|config|benchmark|report|helper|service|cleanup|modorganizer|redlauncher|skse\d*_loader|hlds\b|srcds\b|steamerrorreporter|dgvoodoocpl|reshade_setup)/i;
+const NOT_A_GAME = /^(unins|setup|install|vcredist|vc_redist|dxsetup|dxwebsetup|oalinst|uninstall|crashreport|crashhandler|easyanticheat|eac|battleye|be_service|launcher|activation|patch|update|dotnetfx|touchup|rapidcrc|autorun|autoplay|quicksfv|readme|config|benchmark|report|helper|service|cleanup|modorganizer|redlauncher|skse\d*_loader|hlds\b|srcds\b|steamerrorreporter|dgvoodoocpl|reshade_setup|nvremixbridge)/i;
 
 const DLSS_FILE = /^(nvngx_dlss[a-z_]*\.dll|nvngx\.dll|_nvngx\.dll)$/i;
 const STREAMLINE_FILE = /^sl\.[a-z_]+\.dll$/i;
@@ -473,6 +474,9 @@ async function scanGame(gameDir) {
   const undetectedExes = [];
   const dlssFiles = [];
   const streamlineFiles = [];
+  // RTX Remix runtimes: `.trex\d3d9.dll`. The executable beside them says
+  // DirectX 9 and often 32-bit; the frame is actually drawn by this.
+  const remixFiles = [];
   let addonPresent = null;
   const xboxDeclared = xboxExecutables(gameDir);
   const xboxLayout = xboxDeclared.length > 0 || /(?:^|[\\/])xboxgames(?:[\\/]|$)/i.test(path.resolve(gameDir));
@@ -534,8 +538,11 @@ async function scanGame(gameDir) {
       (STREAMLINE_FILE.test(name) ? streamlineFiles : dlssFiles).push(item);
     } else if (lower.endsWith('.addon64') || lower.endsWith('.addon32') || lower.endsWith('.addon')) {
       addonPresent = path.relative(gameDir, full);
+    } else if (remixRuntime.isRuntimeFile(full)) {
+      remixFiles.push(full);
     }
   }, MAX_SCAN_DEPTH, { includeContent: xboxLayout });
+  const remix = remixRuntime.pickRuntime(gameDir, remixFiles);
 
   // Add manifest-declared executables that could not be inspected as PE files.
   // DXGI is the safe fallback for a GDK PC title when no readable module gives
@@ -631,6 +638,9 @@ async function scanGame(gameDir) {
     exeCandidates.push(...offered);
   }
 
+  // Every executable of a Remix game reaches the same runtime, so each carries
+  // the flag that decides its routes.
+  if (remix) for (const exe of exeCandidates) exe.remix = true;
   const chosen = exeCandidates[0] || null;
   const primaryDlss = selectPrimaryDlss(dlssFiles, chosen);
   // When nothing turned up, say which kind of folder this actually is instead
@@ -661,6 +671,7 @@ async function scanGame(gameDir) {
         exe: data.game && data.game.exe,
         previousReShadeRoute: data.previousReShadeRoute || null,
         optiscaler: data.route === 'optiscaler' ? data.optiscaler : null,
+        remix: data.route === 'remix' ? remixRuntime.installedState(gameDir, data) : null,
         added: Array.isArray(data.added) ? data.added.filter(item => typeof item === 'string') : [],
         vulkanLayer: data.vulkanLayer || null
       };
@@ -690,6 +701,7 @@ async function scanGame(gameDir) {
     dlssFiles,
     primaryDlss,
     streamlineFiles,
+    remix,
     addonPresent,
     emptyReason,
     reshade,

@@ -8,6 +8,7 @@ const core = require('./apply');
 const ini = require('./feeder-config');
 const optiscaler = require('./optiscaler');
 const compatibility = require('./compatibility');
+const remix = require('./remix');
 
 function readManifest(gameDir) {
   const file = path.join(core.backupRoot(gameDir), 'manifest.json');
@@ -21,7 +22,7 @@ function profileFile(gameDir, exePath, api, route) {
   // The profile file is named after the route, so this list is what decides
   // whether a route can keep its own settings at all - and a route missing
   // from it fails the install with nothing but "Invalid route".
-  if (!['native', 'feeder', 'optiscaler', 'renodx'].includes(route)) throw new Error('Invalid route');
+  if (!['native', 'feeder', 'optiscaler', 'renodx', 'remix'].includes(route)) throw new Error('Invalid route');
   const id = crypto.createHash('sha256').update(`${path.relative(gameDir, exePath).toLowerCase()}|${api}`).digest('hex').slice(0, 24);
   return journal.safePath(gameDir, `_DLSS5_Backup/.profiles/${id}-${route}.json`);
 }
@@ -34,6 +35,9 @@ const CONFIG_FILE = /\.(ini|cfg|txt)$/i;
 function configPaths(gameDir, exePath, route) {
   const dir = path.dirname(exePath);
   if (route === 'optiscaler') return [path.join(dir, 'OptiScaler.ini')];
+  // rtx.conf is Remix's own settings file and its menu saves into it; the
+  // route changes one line of it and hands the rest back untouched.
+  if (route === 'remix') return [];
   const reshade = path.join(dir, 'ReShade.ini');
   const preset = ini.presetPath(dir, ini.readText(reshade));
   const files = [reshade, path.join(dir, 'dlss5-feed.cfg'), path.join(dir, 'host64', 'ReShade.ini')];
@@ -118,9 +122,12 @@ async function install(config, log = () => {}) {
       await saveProfile(config.gameDir, old);
       await core.restoreFiles(config.gameDir, old, log);
     }
-    if (config.route !== 'optiscaler') compatibility.assertLoaderCompatible(config, changed ? null : old);
+    // A Remix install never goes near the executable's folder, where a Remix
+    // mod's own d3d9.dll would otherwise read as a conflicting loader.
+    const reshadeRoute = config.route !== 'optiscaler' && config.route !== 'remix';
+    if (reshadeRoute) compatibility.assertLoaderCompatible(config, changed ? null : old);
     const profile = changed || !old ? loadProfile(config) : {};
-    if (config.route !== 'optiscaler' && Object.keys(profile).length) {
+    if (reshadeRoute && Object.keys(profile).length) {
       const manifest = core.beginManifest(config.gameDir, config.exePath, config.api);
       for (const [rel, text] of Object.entries(profile)) {
         await core.writeTracked(manifest, config.gameDir, journal.safePath(config.gameDir, rel), text, { kind: 'config' });
@@ -128,6 +135,7 @@ async function install(config, log = () => {}) {
     }
     let manifest;
     if (config.route === 'optiscaler') manifest = await optiscaler.install({ ...config, profile }, log);
+    else if (config.route === 'remix') manifest = await remix.install(config, log);
     else manifest = await core.applySwap(config, log);
     for (const companion of config.route === 'native' ? (config.companions || []) : []) {
       const dest = path.join(path.dirname(config.exePath), path.basename(companion));

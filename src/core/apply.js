@@ -935,6 +935,9 @@ async function restoreFiles(gameDir, manifest, onLog) {
     }
   }
 
+  // The Remix route edits one line of rtx.conf rather than owning the file.
+  if (manifest.remix) await require('./remix').unconfigure(gameDir, manifest, onLog);
+
   const exeDir = path.dirname(path.join(gameDir, manifest.game.exe));
   const leftovers = [...(manifest.reshade?.filesAdded || [])];
   // The hook DLL goes only when we were the ones who put it there.

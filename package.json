@@ -9,6 +9,7 @@
     "test:ui": "electron scripts/test-game-filters-ui.js",
     "test:payload": "node scripts/test-feeder-payload.js",
     "test:optiscaler": "node scripts/test-optiscaler-payload.js",
+    "components": "node scripts/check-components.js",
     "payload": "node scripts/collect-payload.js",
     "prebuild": "npm run payload",
     "build": "electron-builder --win",

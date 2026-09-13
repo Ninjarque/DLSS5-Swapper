@@ -318,7 +318,7 @@ async function renderHistory() {
     : `<div class="pad" style="color:var(--dim);font-size:13.5px">${t('histEmpty')}</div>`;
 }
 
-const historyRoute = row => ({ native: 'ReShade / RenoDX', feeder: 'ReShade / DLSS5-Feeder', optiscaler: 'OptiScaler DLSS-NR' }[row.route] || row.route || '');
+const historyRoute = row => ({ native: 'ReShade / RenoDX', feeder: 'ReShade / DLSS5-Feeder', optiscaler: 'OptiScaler DLSS-NR', remix: 'RTX Remix runtime (DLSS-NR)' }[row.route] || row.route || '');
 function historyAction(row) {
   if (row.action === 'restore') return t('restored');
   if (row.action === 'recovery') return t('historyRecovered');
@@ -765,6 +765,17 @@ function installOptions(d, pick, dir) {
   // Keep the picker available even when automatic detection yields DX10 or an
   // unsupported renderer. Otherwise the user cannot correct that detection.
   if (!routes.length) return `<div class="install-options">${apiField}</div>${notesBox([apiHint, `<div class="emu-note">${t('unsupportedRendererHint')}</div>`, warning], Boolean(warning))}`;
+  // An RTX Remix game has one route and no backend or API to pick: the
+  // executable's API is not what draws the frame.
+  if (routes.includes('remix')) return `
+    <div class="install-options">
+      <label><span>${t('fRoute')}</span><select id="routeChoice"><option value="remix" selected>${t('routeRemix')}</option></select></label>
+    </div>
+    ${notesBox([
+      `<div class="emu-note backend-note" id="backendHint"><span>${t('routeRemixHint', d.remix ? d.remix.rel : '.trex')}</span><span>${t('remixMenuHint')}</span></div>`,
+      pick.installIssue ? `<div class="emu-note compatibility-warning" role="alert">${t(pick.installIssue)}</div>` : '',
+      warning
+    ], Boolean(warning || pick.installIssue))}`;
   return `
     <div class="install-options">
       ${apiField}
@@ -913,7 +924,7 @@ async function openSheet(dir, keepLog = false) {
         ${showExeFact && pick ? spec(t('fExe'), esc(pick.rel.split(/[\/]/).pop()), null, pick.rel) : ''}
         ${pick ? spec(t('fArchitecture'), `${pick.bitness || '?'}-bit`) : ''}
         ${spec(t('fApi'), esc((pick && selectedApi(pick, dir).label) || reasonText(d.reason) || '—'), pick && selectedApi(pick, dir).api === 'dxgi' ? 'on' : 'off')}
-        ${spec(t('installedBackend'), esc(d.installedRoute === 'optiscaler' ? 'OptiScaler DLSS-NR' : d.installedRoute ? 'ReShade' : t('none')), d.installedRoute ? 'on' : 'off')}
+        ${spec(t('installedBackend'), esc(d.installedRoute === 'optiscaler' ? 'OptiScaler DLSS-NR' : d.installedRoute === 'remix' ? 'RTX Remix runtime' : d.installedRoute ? 'ReShade' : t('none')), d.installedRoute ? 'on' : 'off')}
         ${spec('DLSS', pick && selectedRoute(d, pick, dir) === 'optiscaler' ? esc(inGameDlss || t('none')) : dlssValue(inGameDlss, d.newDlss, upToDate))}
         ${d.optiscaler ? spec('OptiScaler', esc(d.optiscaler.installed ? d.optiscaler.version : t('notInstalled')), d.optiscaler.installed ? 'on' : 'off') : ''}
         ${spec(t('fAddon'), esc(d.addon ? t('installed') : t('notPresent')), d.addon ? 'on' : 'off')}
@@ -1463,7 +1474,8 @@ document.addEventListener('keydown', (e) => {
 });
 // Most job events are progress markers read as codes. The few that are
 // advice for the person are shown in their language instead.
-const SPOKEN_JOB_CODES = new Set(['historySaveWarning', 'driverNeuralFault', 'oldShaderCompiler', 'overlaySkipped', 'feedVkLayerReady', 'neuralModelKept', 'rivalConsumerSetAside']);
+const SPOKEN_JOB_CODES = new Set(['historySaveWarning', 'driverNeuralFault', 'oldShaderCompiler', 'overlaySkipped', 'feedVkLayerReady', 'neuralModelKept', 'rivalConsumerSetAside',
+  'remixDetected', 'remixDownloading', 'remixVerified', 'remixRuntimeSwapped', 'remixRuntimeKept', 'remixConfigured']);
 window.lab.onJob((e) => jobLog(SPOKEN_JOB_CODES.has(e.code)
   ? t(e.code, ...Object.values(e.params || {}))
   : `${e.code} ${JSON.stringify(e.params)}`));

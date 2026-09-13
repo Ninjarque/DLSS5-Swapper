@@ -29,6 +29,7 @@ const installRoutes = require('./src/shared/install-routes');
 const renderingApi = require('./src/shared/rendering-api');
 const { projectUrl } = require('./src/core/project-links');
 const optiscaler = require('./src/core/optiscaler');
+const remixRuntime = require('./src/core/remix');
 const { missingPayload } = require('./src/core/payload-guidance');
 const backends = require('./src/core/backend-manager');
 const journal = require('./src/core/file-journal');
@@ -1575,6 +1576,8 @@ ipcMain.handle('details', async (_event, dir) => {
     installedExe: scan.install && scan.install.exe,
     previousReShadeRoute: scan.install && scan.install.previousReShadeRoute,
     optiscaler: scan.install && scan.install.optiscaler,
+    remix: scan.remix ? { rel: scan.remix.rel, bridge: scan.remix.bridge, release: remixRuntime.RELEASE.tag } : null,
+    remixInstall: scan.install && scan.install.remix,
     recommendedRoute: installRoutes.recommendedRoute(scan),
     exes: scan.exeCandidates.map((e) => ({
       rel: e.rel, path: e.path, apiLabel: e.apiLabel, api: e.api,
@@ -1583,9 +1586,10 @@ ipcMain.handle('details', async (_event, dir) => {
       installIssue: compatibility.targetIssue(dir, e.path),
       antiCheatWarning: compatibility.hasAntiCheat(dir, e.path),
       hasNativeDlss,
+      remix: Boolean(scan.remix),
       apiOverride: apiPreference(state, dir, e.path),
       apiChoices: e.apiChoices || [{ api: e.api, label: e.apiLabel }],
-      routes: installRoutes.routesFor({ ...e, hasNativeDlss })
+      routes: installRoutes.routesFor({ ...e, hasNativeDlss, remix: Boolean(scan.remix) })
     })),
     files,
     currentDlss: scan.primaryDlss ? {
@@ -1638,6 +1642,7 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
   const target = renderingApi.effective(detected, selection);
   compatibility.assertSafeTarget(dir, target.path);
   target.hasNativeDlss = installRoutes.nativeDlssPresent(scan);
+  target.remix = Boolean(scan.remix);
   const api = target.api;
   const availableRoutes = installRoutes.routesFor(target, api);
   if (requestedRoute === 'optiscaler' && !availableRoutes.includes('optiscaler')) {
@@ -1721,6 +1726,17 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
     send({ code: 'optiVerified', params: { version: release.version } });
   }
 
+  // RTX Remix: the neural-capable runtime is fetched from its author's release
+  // and verified by digest before anything in the game is touched.
+  let remixRoot = null;
+  if (route === 'remix') {
+    send({ code: 'remixDetected', params: { rel: scan.remix.rel } });
+    send({ code: 'remixDownloading', params: { tag: remixRuntime.RELEASE.tag } });
+    try { remixRoot = await remixRuntime.ensureRuntime(app.getPath('userData')); }
+    catch (err) { return { ok: false, code: componentCode(err, 'errRemixDownload'), message: err.message }; }
+    send({ code: 'remixVerified', params: { tag: remixRuntime.RELEASE.tag } });
+  }
+
   // Check before restoring or touching the game: these DLLs are imported by
   // Feeder and its helper. Never report a working installation if absent.
   if (route === 'feeder') {
@@ -1781,7 +1797,8 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
   try { overlayWanted = require('./src/overlay-preferences').read(app.getPath('userData')).enabled === true; } catch {}
 
   let overlayPlan = null;
-  if (overlayWanted) {
+  // The panel is a ReShade add-on; a Remix game has its own menu (Alt+X).
+  if (overlayWanted && route !== 'remix') {
     try {
       // Drop records whose bytes are already gone - a restore, or an overlay
       // rebuilt since. Without this, prepare() refuses the new build because an
@@ -1823,6 +1840,8 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
       emulator: target.emulator,
       source: p.source,
       optiRoot,
+      remix: scan.remix,
+      remixRoot,
       companions,
       reshadeSetup: p.reshadeSetup,
       setupRunner: proton ? createSetupRunner(proton) : undefined,
