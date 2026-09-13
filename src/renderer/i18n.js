@@ -135,6 +135,7 @@ const S = {
     errRemixMissing: 'The RTX Remix runtime (.trex\\d3d9.dll) is no longer where the scan found it. Rescan the game.',
     errRemixRuntime: 'This game’s RTX Remix runtime is not a 64-bit build, so the neural-rendering runtime cannot be used with it.',
     errRemixPayload: 'The downloaded Remix runtime is incomplete or has the wrong architecture.',
+    errRemixDependencies: 'The neural-rendering Remix runtime needs libraries this game’s Remix folder does not have (it was built against a newer Remix), so it would never start - the game would run with no window. Nothing was changed.',
     multipassConfigured: 'DLSS Tool set to hook on Present, DLSS not required',
     multipassHint: 'The multipass consumer runs the neural pass more than once per frame. It replaces the ordinary one - the two cannot both be loaded, and this install swaps the file for you.',
     driverFaultTitle: 'This driver may not run the neural pass',

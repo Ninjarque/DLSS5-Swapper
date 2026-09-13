@@ -167,6 +167,32 @@ test('an rtx.conf the install had to create is removed again when nothing else w
   assert.equal(fs.existsSync(path.join(dir, 'bin', 'rtx.conf')), false);
 });
 
+test('a runtime whose libraries the game lacks is refused before anything moves', async (t) => {
+  // What happened in Portal with RTX: the neural build imports USD split into
+  // usd_*.dll plus libxess.dll, the game ships one usd_ms.dll, Windows refuses
+  // the runtime and the game runs with no window.
+  const dir = portal(t);
+  const trex = path.join(dir, 'bin', '.trex');
+  writePe(path.join(trex, 'usd_ms.dll'), { bitness: 64 });
+  writePe(path.join(trex, 'rtxio.dll'), { bitness: 64 });
+  const before = new Map(fs.readdirSync(trex).map(name => [name, fs.readFileSync(path.join(trex, name))]));
+  const conf = fs.readFileSync(path.join(dir, 'rtx.conf'), 'utf8');
+  const imports = () => ['kernel32.dll', 'api-ms-win-crt-runtime-l1-1-0.dll', 'rtxio.dll', 'usd_ar.dll', 'usd_sdf.dll', 'libxess.dll', 'remix_nvngx.dll'];
+
+  assert.deepEqual(remix.missingDependencies(path.join(trex, 'd3d9.dll'), trex, { readImports: imports, extra: ['remix_nvngx.dll'] }),
+    ['usd_ar.dll', 'usd_sdf.dll', 'libxess.dll'], 'system DLLs, API sets, the folder and files the release adds all count as present');
+
+  await assert.rejects(installInto(dir, { ...payload(t), readImports: imports }), (error) => {
+    assert.equal(error.code, 'errRemixDependencies');
+    assert.match(error.message, /usd_ar\.dll, usd_sdf\.dll, libxess\.dll/);
+    return true;
+  });
+  assert.deepEqual(fs.readdirSync(trex).sort(), [...before.keys()].sort(), 'no file added');
+  for (const [name, bytes] of before) assert.deepEqual(fs.readFileSync(path.join(trex, name)), bytes, `${name} untouched`);
+  assert.equal(fs.readFileSync(path.join(dir, 'rtx.conf'), 'utf8'), conf);
+  assert.equal(fs.existsSync(path.join(dir, '_DLSS5_Backup', 'manifest.json')), false, 'no install recorded');
+});
+
 test('the pinned runtime is identified by size and digest, and every pin is a real SHA-256', async (t) => {
   for (const release of remix.RELEASES) {
     for (const file of release.files) {

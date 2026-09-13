@@ -140,6 +140,25 @@ function validateRuntime(root, release = RELEASE) {
   }
 }
 
+// A runtime is only as good as the libraries beside it. The neural build was
+// compiled against a newer Remix than Portal with RTX or Half-Life 2 RTX ship:
+// it imports USD as usd_ar.dll, usd_sdf.dll and so on, plus libxess.dll, where
+// those games carry one usd_ms.dll. Windows then refuses to load it, the bridge
+// waits for a runtime that never arrives, and the game runs with no window and
+// no error at all. So every import is checked before a single file moves.
+function missingDependencies(runtimeFile, runtimeDir, {
+  extra = [], systemRoot = process.env.SystemRoot, readImports = pe.getImports
+} = {}) {
+  let present;
+  try { present = new Set(fs.readdirSync(runtimeDir).map(name => name.toLowerCase())); } catch { present = new Set(); }
+  for (const name of extra) present.add(String(name).toLowerCase());
+  const system = systemRoot ? path.join(systemRoot, 'System32') : null;
+  return [...new Set((readImports(runtimeFile) || []).map(name => String(name).toLowerCase()))]
+    .filter(name => !/^(?:api|ext)-ms-/.test(name))
+    .filter(name => !present.has(name))
+    .filter(name => !(system && fs.existsSync(path.join(system, name))));
+}
+
 // rtx.conf is read from beside the runtime's parent first, then from the game
 // folder. It is also the file Remix's own menu saves into, so it is edited one
 // line at a time and never restored wholesale over settings chosen since.
@@ -190,6 +209,12 @@ async function install(config, log = () => {}) {
   let swapped = false;
   if (!flavour) {
     validateRuntime(remixRoot);
+    const missing = missingDependencies(path.join(remixRoot, RUNTIME), trex, {
+      extra: RELEASE.files.map(item => item.name), readImports: config.readImports
+    });
+    if (missing.length) {
+      throw fail('errRemixDependencies', `${RELEASE.tag} needs ${missing.join(', ')}, which ${remix.rel} does not have. Nothing in the game was changed.`);
+    }
     for (const item of RELEASE.files) {
       const rel = await copyTracked(manifest, gameDir, path.join(remixRoot, item.name), path.join(trex, item.name), { kind: 'remix' });
       log({ code: 'added', params: { rel } });
@@ -279,7 +304,7 @@ function installedState(gameDir, data) {
 }
 
 module.exports = {
-  RELEASE, RELEASES, FLAVOURS, isRuntimeFile, pickRuntime, flavourOf, isPinnedRuntime,
+  RELEASE, RELEASES, FLAVOURS, isRuntimeFile, pickRuntime, flavourOf, isPinnedRuntime, missingDependencies,
   ensureRuntime, validateRuntime, configPath, currentLine, setLine, enable,
   install, unconfigure, installedState
 };
